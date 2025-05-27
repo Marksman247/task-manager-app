@@ -1,187 +1,135 @@
 import streamlit as st
+from datetime import datetime, date
 import pandas as pd
-from datetime import datetime
-import os
-from st_aggrid import AgGrid, GridOptionsBuilder
 
-# App title
+st.set_page_config(page_title="Personal Task Manager", layout="wide")
+
+# --- Helper functions ---
+
+def format_due_date(due_date_str):
+    try:
+        dt = datetime.strptime(due_date_str, "%Y/%m/%d")
+        return dt.date()
+    except Exception:
+        return None
+
+def priority_color(priority):
+    return {
+        "Low": "green",
+        "Medium": "orange",
+        "High": "red"
+    }.get(priority, "blue")
+
+def load_tasks():
+    if "tasks" not in st.session_state:
+        st.session_state.tasks = []
+    return st.session_state.tasks
+
+def save_task(task):
+    st.session_state.tasks.append(task)
+
+def filter_tasks(tasks, keyword):
+    if not keyword:
+        return tasks
+    keyword = keyword.lower()
+    return [t for t in tasks if
+            keyword in t['name'].lower() or
+            keyword in t['description'].lower() or
+            keyword in t['status'].lower()]
+
+# --- UI ---
+
 st.title("📋 Personal Task Manager (Phase 4 Final)")
 
-# Initialize session state for task storage
-if 'tasks' not in st.session_state:
-    st.session_state.tasks = pd.DataFrame(columns=['Task', 'Description', 'Due Date', 'Priority', 'Status'])
+with st.expander("➕ Add New Task"):
+    with st.form("task_form", clear_on_submit=True):
+        name = st.text_input("Task Name")
+        description = st.text_area("Description")
+        due_date_str = st.date_input("Due Date")
+        priority = st.selectbox("Priority", ["Low", "Medium", "High"])
+        status = st.selectbox("Status", ["Pending", "In Progress", "Completed"])
 
-# Sidebar for adding a task
-st.sidebar.header("➕ Add New Task")
-task_name = st.sidebar.text_input("Task Name")
-task_description = st.sidebar.text_area("Description")
-due_date = st.sidebar.date_input("Due Date", value=datetime.today())
-priority = st.sidebar.selectbox("Priority", ['High', 'Medium', 'Low'])
-status = st.sidebar.selectbox("Status", ['Pending', 'In Progress', 'Completed'])
+        submitted = st.form_submit_button("Add Task")
+        if submitted:
+            if not name:
+                st.warning("Task Name is required!")
+            else:
+                task = {
+                    "name": name.strip(),
+                    "description": description.strip(),
+                    "due_date": due_date_str.strftime("%Y/%m/%d"),
+                    "priority": priority,
+                    "status": status
+                }
+                save_task(task)
+                st.success("✅ Task added successfully!")
 
-if st.sidebar.button("Add Task"):
-    if task_name.strip() == "":
-        st.sidebar.error("Task Name is required.")
-    else:
-        new_task = pd.DataFrame({
-            'Task': [task_name],
-            'Description': [task_description],
-            'Due Date': [due_date.strftime('%Y-%m-%d')],
-            'Priority': [priority],
-            'Status': [status]
-        })
-        st.session_state.tasks = pd.concat([st.session_state.tasks, new_task], ignore_index=True)
-        st.sidebar.success("✅ Task added successfully!")
+tasks = load_tasks()
 
-# Sidebar: Save and Load Options
-st.sidebar.markdown("---")
-if st.sidebar.button("💾 Save Tasks to CSV"):
-    st.session_state.tasks.to_csv("tasks_data.csv", index=False)
-    st.sidebar.success("Tasks saved to 'tasks_data.csv'")
+# Search / Filter
+st.markdown("### 🔍 Search / Filter Tasks")
+search = st.text_input("Enter a keyword to filter by Task, Description, or Status")
+filtered_tasks = filter_tasks(tasks, search)
 
-if st.sidebar.button("📂 Load Tasks from CSV"):
-    if os.path.exists("tasks_data.csv"):
-        st.session_state.tasks = pd.read_csv("tasks_data.csv")
-        st.sidebar.success("Tasks loaded from 'tasks_data.csv'")
-    else:
-        st.sidebar.error("No saved task file found.")
-
-# Task Search/Filter
-st.subheader("🔍 Search / Filter Tasks")
-search_query = st.text_input("Enter a keyword to filter by Task, Description, or Status")
-
-if search_query:
-    filtered_tasks = st.session_state.tasks[
-        st.session_state.tasks.apply(lambda row: search_query.lower() in row['Task'].lower() 
-                                     or search_query.lower() in row['Description'].lower()
-                                     or search_query.lower() in row['Status'].lower(), axis=1)
-    ]
+# Task List Display
+st.markdown("### 📑 Your Task List")
+if filtered_tasks:
+    for t in filtered_tasks:
+        due = format_due_date(t["due_date"])
+        due_str = due.strftime("%Y-%m-%d") if due else "No due date"
+        col1, col2, col3, col4 = st.columns([3, 5, 2, 2])
+        with col1:
+            st.markdown(f"**{t['name']}**")
+            st.markdown(f"_{t['description']}_")
+        with col2:
+            st.markdown(f"**Status:** {t['status']}")
+        with col3:
+            st.markdown(f"**Due:** {due_str}")
+        with col4:
+            color = priority_color(t['priority'])
+            st.markdown(f"**Priority:** <span style='color:{color};font-weight:bold'>{t['priority']}</span>", unsafe_allow_html=True)
+        st.markdown("---")
 else:
-    filtered_tasks = st.session_state.tasks
+    st.info("No tasks to show.")
 
-# Helper: Color for status
-def get_status_color(status):
-    if status == 'Pending':
-        return 'orange'
-    elif status == 'In Progress':
-        return 'blue'
-    elif status == 'Completed':
-        return 'green'
-    else:
-        return 'gray'
+# Summary and Stats
+st.markdown("### 📊 Task Overview")
 
-# Task List with edit/delete
-st.subheader("📑 Your Task List")
-if filtered_tasks.empty:
-    st.info("No matching tasks found or no tasks added yet.")
+total_tasks = len(tasks)
+due_today = sum(1 for t in tasks if format_due_date(t["due_date"]) == date.today())
+overdue = sum(1 for t in tasks if format_due_date(t["due_date"]) and format_due_date(t["due_date"]) < date.today() and t["status"] != "Completed")
+completed = sum(1 for t in tasks if t["status"] == "Completed")
+percent_completed = (completed / total_tasks * 100) if total_tasks > 0 else 0
+
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("📌 Total Tasks", total_tasks)
+col2.metric("📅 Due Today", due_today)
+col3.metric("⚠️ Overdue", overdue)
+col4.metric("✅ Completed", completed)
+col5.metric("📈 % Completed", f"{percent_completed:.1f}%")
+
+# Task Count by Status Bar Chart
+status_counts = pd.Series([t["status"] for t in tasks]).value_counts()
+st.bar_chart(status_counts.rename_axis("Status").reset_index(name="Count").set_index("Status"))
+
+# Task Count by Priority Bar Chart
+priority_counts = pd.Series([t["priority"] for t in tasks]).value_counts()
+st.bar_chart(priority_counts.rename_axis("Priority").reset_index(name="Count").set_index("Priority"))
+
+st.markdown("### 📅 Calendar View (Grouped by Due Date)")
+
+# Group tasks by due date (date object)
+tasks_by_date = {}
+for t in tasks:
+    due = format_due_date(t["due_date"])
+    if due:
+        tasks_by_date.setdefault(due, []).append(t)
+
+if tasks_by_date:
+    for due_date_key in sorted(tasks_by_date.keys()):
+        st.markdown(f"**{due_date_key.strftime('%Y-%m-%d')}**")
+        for task in tasks_by_date[due_date_key]:
+            st.markdown(f"- {task['name']} - {task['status']} - Priority: {task['priority']}")
 else:
-    for index, row in filtered_tasks.iterrows():
-        due_date_obj = pd.to_datetime(row['Due Date'])
-        today = pd.to_datetime(datetime.today().strftime('%Y-%m-%d'))
-        overdue = due_date_obj < today and row['Status'] != 'Completed'
-        due_today = due_date_obj == today
+    st.info("No tasks with due dates to show.")
 
-        with st.expander(f"{row['Task']} - :{get_status_color(row['Status'])}[{row['Status']}] (Due: {row['Due Date']})"):
-            if due_today:
-                st.warning("📌 Task is due today!")
-            elif overdue:
-                st.error("⚠️ Task is overdue!")
-
-            st.write(f"**Description:** {row['Description']}")
-            st.write(f"**Priority:** {row['Priority']}")
-            st.write(f"**Due Date:** {row['Due Date']}")
-            st.write(f"**Status:** :{get_status_color(row['Status'])}[{row['Status']}]")
-
-            new_name = st.text_input(f"Edit Task Name ({index})", value=row['Task'], key=f"name_{index}")
-            new_desc = st.text_area(f"Edit Description ({index})", value=row['Description'], key=f"desc_{index}")
-            new_due = st.date_input(f"Edit Due Date ({index})", value=due_date_obj, key=f"due_{index}")
-            new_priority = st.selectbox(f"Edit Priority ({index})", ['High', 'Medium', 'Low'],
-                                        index=['High', 'Medium', 'Low'].index(row['Priority']), key=f"prio_{index}")
-            new_status = st.selectbox(f"Edit Status ({index})", ['Pending', 'In Progress', 'Completed'],
-                                      index=['Pending', 'In Progress', 'Completed'].index(row['Status']),
-                                      key=f"status_{index}")
-
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Update Task", key=f"update_{index}"):
-                    st.session_state.tasks.at[index, 'Task'] = new_name
-                    st.session_state.tasks.at[index, 'Description'] = new_desc
-                    st.session_state.tasks.at[index, 'Due Date'] = new_due.strftime('%Y-%m-%d')
-                    st.session_state.tasks.at[index, 'Priority'] = new_priority
-                    st.session_state.tasks.at[index, 'Status'] = new_status
-                    st.success("✅ Task updated successfully.")
-                    st.experimental_rerun()
-
-            with col2:
-                if st.button("Delete Task", key=f"delete_{index}"):
-                    st.session_state.tasks.drop(index, inplace=True)
-                    st.session_state.tasks.reset_index(drop=True, inplace=True)
-                    st.success("🗑️ Task deleted successfully.")
-                    st.experimental_rerun()
-
-# Task Statistics Dashboard
-st.subheader("📊 Task Overview")
-if st.session_state.tasks.empty:
-    st.info("No tasks to analyze.")
-else:
-    status_counts = st.session_state.tasks['Status'].value_counts()
-    priority_counts = st.session_state.tasks['Priority'].value_counts()
-
-    st.write("### 📈 Task Count by Status")
-    st.bar_chart(status_counts)
-
-    st.write("### 🎨 Task Count by Priority")
-    st.bar_chart(priority_counts)
-
-    total_tasks = len(st.session_state.tasks)
-    st.write(f"**Total Tasks:** {total_tasks}")
-
-    # 📌 Task Summary Metrics
-    today_str = datetime.today().strftime('%Y-%m-%d')
-    due_today = len(st.session_state.tasks[st.session_state.tasks['Due Date'] == today_str])
-    overdue = len(st.session_state.tasks[
-        (pd.to_datetime(st.session_state.tasks['Due Date']) < pd.to_datetime(today_str)) &
-        (st.session_state.tasks['Status'] != 'Completed')
-    ])
-    completed = len(st.session_state.tasks[st.session_state.tasks['Status'] == 'Completed'])
-
-    completion_pct = int((completed / total_tasks) * 100)
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("📌 Total Tasks", total_tasks)
-    col2.metric("📅 Due Today", due_today)
-    col3.metric("⚠️ Overdue", overdue)
-    col4.metric("✅ Completed", completed)
-
-    st.progress(completion_pct / 100)
-    st.caption(f"📈 {completion_pct}% of tasks completed.")
-
-# Clean spacing
-st.markdown("---")
-
-# Calendar View with AgGrid
-st.subheader("📅 Calendar View (Grouped by Due Date)")
-
-if st.session_state.tasks.empty:
-    st.info("No tasks to display in calendar view.")
-else:
-    df = st.session_state.tasks.copy()
-    df['Due Date'] = pd.to_datetime(df['Due Date'])
-    df = df.sort_values('Due Date')
-
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_pagination()
-    gb.configure_side_bar()
-    gb.configure_default_column(editable=True, groupable=True, filterable=True)
-    gb.configure_column("Due Date", type=["dateColumnFilter","customDateTimeFormat"], custom_format_string='yyyy-MM-dd')
-    grid_options = gb.build()
-
-    AgGrid(
-        df,
-        gridOptions=grid_options,
-        enable_enterprise_modules=True,
-        update_mode='MODEL_CHANGED',
-        theme='fresh',
-        height=350,
-        fit_columns_on_grid_load=True
-    )
