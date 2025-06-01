@@ -1,0 +1,20 @@
+
+Save that file as `README.md` in your project root.
+
+---
+
+### 2. Add a LICENSE file
+
+- Go to [choosealicense.com](https://choosealicense.com/licenses/mit/) and copy the MIT License text (recommended for open-source and simplicity).
+- Create a file called `LICENSE` in your project root.
+- Paste the MIT license text, then replace `[year]` with current year and `[fullname]` with your name or username.
+
+Example:
+
+```text
+MIT License
+
+Copyright (c) 2025 Marksman247
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+...
